@@ -1,6 +1,6 @@
 # ONNX Test in Go
 
-## Stes to reproduce
+## Steps to reproduce
 
 ### Setup Python environment
 
