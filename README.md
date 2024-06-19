@@ -37,14 +37,37 @@ Test using the model loaded from `joblib`:
 
 ```
 python inference/python_sk/predict.py
-0.9473684210526315
+Accuracy:  0.9736842105263158
+Total run time: 150.890ms
+Inference time: 4.618ms
 ```
 
 Test using the model loaded from `onnxruntime`:
 
+First run:
+
 ```
 python inference/python_onnx/predict.py
-0.9473684210526315
+Accuracy:  0.9736842105263158
+Total run time: 83.337ms
+Inference time: 3.119ms5
+```
+Subsequent runs:
+
+```
+python inference/python_onnx/predict.py
+Accuracy:  0.9736842105263158
+Total run time: 7.824ms
+Inference time: 1.015ms
+```
+
+Test using the model loaded in Go:
+
+```
+./onnx_test
+Accuracy:  0.9736842105263158
+Total run time:  36.899948ms
+Inference time:  6.211239ms
 ```
 
 
