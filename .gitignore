@@ -1,1 +1,2 @@
 .venv
+inference/go_onnx/onnx_test

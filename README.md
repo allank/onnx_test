@@ -23,7 +23,15 @@ This will create:
  - `data/X_test.csv` the test data
  - `data/y_test.csv` the test ground truth values
 
-## Test models
+### Test models
+
+#### Setting up ONNX Runtime
+
+You will need the ONNX runtime for your platform.  Visit [https://github.com/microsoft/onnxruntime/releases](https://github.com/microsoft/onnxruntime/releases) and download the release for your platform.  Extract the downloaded files and copy the shared libary to the `inference/go_onnx` folder.  On Intel Mac this was `libonnxruntime.1.18.0.dylib`.  If necessary, update the following line in `main.go`:
+
+`	ort.SetSharedLibraryPath("libonnxruntime.1.18.0.dylib")`
+
+#### Running the tests
 
 Test using the model loaded from `joblib`:
 
