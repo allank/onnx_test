@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+// Calculates the accuracy between y (ground truth) and y_pred (predicted values)
+// Simple proportion of matching results
 func accuracy(y, y_pred []int64) float64 {
 	total := float64(len(y))
 	match := float64(0)
@@ -24,11 +26,10 @@ func accuracy(y, y_pred []int64) float64 {
 }
 
 func main() {
-	// This line _may_ be optional; by default the library will try to load
-	// "onnxruntime.dll" on Windows, and "onnxruntime.so" on any other system.
-	// For stability, it is probably a good idea to always set this explicitly.
 
 	lTime := time.Now()
+
+	// Read training data and ground truth
 	csvFile, err := os.Open("../../data/X_test.csv")
 	if err != nil {
 		fmt.Println("Could not read test data")
@@ -49,6 +50,7 @@ func main() {
 	y, _ := csvReader.ReadAll()
 	csvFile.Close()
 
+	// This needs to be set to the appropriate runtime for your platform
 	ort.SetSharedLibraryPath("libonnxruntime.1.18.0.dylib")
 
 	err = ort.InitializeEnvironment()
@@ -57,9 +59,13 @@ func main() {
 		fmt.Println("Error starting environment: ", err)
 	}
 
+	// input tensor needs to be rank 1
+	// capture number of rows for later
 	rows := int64(len(X))
 	inputData := []float32{}
 
+	// Flatten matrix, storing inputs as float32
+	// TODO: we should probably exit if we cannot parse any of the values
 	for _, row := range X {
 		for _, col := range row {
 			if f, err := strconv.ParseFloat(col, 32); err == nil {
@@ -68,12 +74,17 @@ func main() {
 		}
 	}
 
+	// store ground truth as int64
+	// TODO: we should probably exit if we cannot parse any of the values
 	y_truth := []int64{}
 	for _, i := range y {
 		if i64, err := strconv.ParseFloat(i[0], 32); err == nil {
 			y_truth = append(y_truth, int64(i64))
 		}
 	}
+
+	// ONNX runtime needs to know the original shape of our data
+	// This is the number of rows x 4 features fitted in original model
 	inputShape := ort.NewShape(rows, 4)
 	inputTensor, err := ort.NewTensor(inputShape, inputData)
 	if err != nil {
@@ -81,6 +92,7 @@ func main() {
 	}
 	defer inputTensor.Destroy()
 
+	// For this model it is rank 1
 	outputShape := ort.NewShape(rows)
 	outputTensor, err := ort.NewEmptyTensor[int64](outputShape)
 	if err != nil {
@@ -90,6 +102,8 @@ func main() {
 
 	sTime := time.Now()
 
+	// TODO: Separate the loading of the model from the inference
+	// Timings here may be skewed by needing to instantiate the model as part of the inference process
 	session, err := ort.NewAdvancedSession("../../data/rf_iris.onnx",
 		[]string{"X"}, []string{"output_label"},
 		[]ort.ArbitraryTensor{inputTensor}, []ort.ArbitraryTensor{outputTensor}, nil)
@@ -105,8 +119,8 @@ func main() {
 
 	outputData := outputTensor.GetData()
 
-	fmt.Println("Accuracy: ", accuracy(y_truth, outputData))
 	eTime := time.Now()
+	fmt.Println("Accuracy: ", accuracy(y_truth, outputData))
 	fmt.Println("Total run time: ", eTime.Sub(lTime))
 	fmt.Println("Inference time: ", eTime.Sub(sTime))
 }
