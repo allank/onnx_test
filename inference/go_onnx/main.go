@@ -100,8 +100,6 @@ func main() {
 	}
 	defer outputTensor.Destroy()
 
-	sTime := time.Now()
-
 	// TODO: Separate the loading of the model from the inference
 	// Timings here may be skewed by needing to instantiate the model as part of the inference process
 	session, err := ort.NewAdvancedSession("../../data/rf_iris.onnx",
@@ -112,6 +110,7 @@ func main() {
 		fmt.Println("Error creating session: ", err)
 	}
 
+	sTime := time.Now()
 	err = session.Run()
 	if err != nil {
 		fmt.Println("Error running session: ", err)

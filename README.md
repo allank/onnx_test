@@ -66,8 +66,8 @@ Test using the model loaded in Go:
 ```
 ./onnx_test
 Accuracy:  0.9736842105263158
-Total run time:  36.899948ms
-Inference time:  6.211239ms
+Total run time:  34.424473ms
+Inference time:  395.164µs
 ```
 
 
