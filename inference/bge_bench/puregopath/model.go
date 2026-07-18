@@ -40,9 +40,47 @@ func (m mat64) row(i int) []float64 {
 	return m.data[i*m.cols : (i+1)*m.cols]
 }
 
+// concatFloat64 concatenates slices in order into one new slice.
+func concatFloat64(parts ...[]float64) []float64 {
+	n := 0
+	for _, p := range parts {
+		n += len(p)
+	}
+	out := make([]float64, 0, n)
+	for _, p := range parts {
+		out = append(out, p...)
+	}
+	return out
+}
+
+// fuseWeights stacks same-width weight matrices row-wise into one wider
+// matrix — e.g. turning separate Q, K, V projection weights into a single
+// weight matrix whose output is the concatenation of Q, K, and V. Valid
+// because linear()'s output columns are independent per output row: w's
+// rows are already the per-output-feature vectors to dot against x's rows,
+// so stacking rows just means "compute more output features per call."
+func fuseWeights(mats ...mat64) mat64 {
+	rows := 0
+	cols := mats[0].cols
+	datas := make([][]float64, len(mats))
+	for i, m := range mats {
+		if m.cols != cols {
+			panic(fmt.Sprintf("puregopath: fuseWeights: matrix %d has %d columns, want %d", i, m.cols, cols))
+		}
+		rows += m.rows
+		datas[i] = m.data
+	}
+	return mat64{data: concatFloat64(datas...), rows: rows, cols: cols}
+}
+
 type layerWeights struct {
-	qW, kW, vW               mat64
-	qB, kB, vB               []float64
+	// qkvW, qkvB are the Q, K, V projection weights/biases fused into one
+	// wider matmul (see fuseWeights) — cuts three gonum Dgemm dispatch
+	// calls per layer down to one. Columns [0:hiddenSize) are Q's output
+	// features, [hiddenSize:2*hiddenSize) are K's, [2*hiddenSize:3*hiddenSize)
+	// are V's.
+	qkvW                     mat64
+	qkvB                     []float64
 	attnOutW                 mat64
 	attnOutB                 []float64
 	attnLNWeight, attnLNBias []float64
@@ -126,12 +164,14 @@ func Load(path string) (*Model, error) {
 	for i := 0; i < numLayers; i++ {
 		p := fmt.Sprintf("encoder.layer.%d.", i)
 		lw := &m.layers[i]
-		lw.qW = l.dense(p+"attention.self.query.weight", hiddenSize, hiddenSize)
-		lw.qB = l.vec(p+"attention.self.query.bias", hiddenSize)
-		lw.kW = l.dense(p+"attention.self.key.weight", hiddenSize, hiddenSize)
-		lw.kB = l.vec(p+"attention.self.key.bias", hiddenSize)
-		lw.vW = l.dense(p+"attention.self.value.weight", hiddenSize, hiddenSize)
-		lw.vB = l.vec(p+"attention.self.value.bias", hiddenSize)
+		qW := l.dense(p+"attention.self.query.weight", hiddenSize, hiddenSize)
+		qB := l.vec(p+"attention.self.query.bias", hiddenSize)
+		kW := l.dense(p+"attention.self.key.weight", hiddenSize, hiddenSize)
+		kB := l.vec(p+"attention.self.key.bias", hiddenSize)
+		vW := l.dense(p+"attention.self.value.weight", hiddenSize, hiddenSize)
+		vB := l.vec(p+"attention.self.value.bias", hiddenSize)
+		lw.qkvW = fuseWeights(qW, kW, vW)
+		lw.qkvB = concatFloat64(qB, kB, vB)
 		lw.attnOutW = l.dense(p+"attention.output.dense.weight", hiddenSize, hiddenSize)
 		lw.attnOutB = l.vec(p+"attention.output.dense.bias", hiddenSize)
 		lw.attnLNWeight = l.vec(p+"attention.output.LayerNorm.weight", hiddenSize)
@@ -178,9 +218,12 @@ func (m *Model) Embed(inputIDs []int64) []float64 {
 
 func attentionBlock(x mat64, lw *layerWeights) mat64 {
 	seqLen := x.rows
-	q := linear(x, lw.qW, lw.qB)
-	k := linear(x, lw.kW, lw.kB)
-	v := linear(x, lw.vW, lw.vB)
+	qkv := linear(x, lw.qkvW, lw.qkvB)
+	const (
+		qOff = 0
+		kOff = hiddenSize
+		vOff = 2 * hiddenSize
+	)
 
 	context := newMat64(seqLen, hiddenSize)
 	scores := newMat64(seqLen, seqLen)
@@ -190,10 +233,10 @@ func attentionBlock(x mat64, lw *layerWeights) mat64 {
 		off := h * headDim
 
 		for i := 0; i < seqLen; i++ {
-			qi := q.row(i)[off : off+headDim]
+			qi := qkv.row(i)[qOff+off : qOff+off+headDim]
 			srow := scores.row(i)
 			for j := 0; j < seqLen; j++ {
-				kj := k.row(j)[off : off+headDim]
+				kj := qkv.row(j)[kOff+off : kOff+off+headDim]
 				var dot float64
 				for d := 0; d < headDim; d++ {
 					dot += qi[d] * kj[d]
@@ -212,7 +255,7 @@ func attentionBlock(x mat64, lw *layerWeights) mat64 {
 			}
 			for j := 0; j < seqLen; j++ {
 				s := srow[j]
-				vj := v.row(j)[off : off+headDim]
+				vj := qkv.row(j)[vOff+off : vOff+off+headDim]
 				for d := 0; d < headDim; d++ {
 					crow[d] += s * vj[d]
 				}
