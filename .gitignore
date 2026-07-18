@@ -1,3 +1,5 @@
 .venv
 inference/go_onnx/onnx_test
 inference/go_onnx/libonnxruntime.1.18.0.dylib
+inference/bge_bench/data/*.onnx
+inference/bge_bench/data/*.safetensors
