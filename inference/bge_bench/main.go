@@ -41,6 +41,24 @@ func cosineSimilarity(a, b []float64) float64 {
 	return dot / (math.Sqrt(na) * math.Sqrt(nb))
 }
 
+// maxAbsDiff returns the largest per-element absolute difference between
+// two equal-length vectors. Used alongside cosine similarity so a
+// systematic precision bias (e.g. from a lower-precision arithmetic path)
+// can't hide inside an aggregate similarity score that still reads ~1.0.
+func maxAbsDiff(a, b []float64) float64 {
+	var maxDiff float64
+	for i := range a {
+		d := a[i] - b[i]
+		if d < 0 {
+			d = -d
+		}
+		if d > maxDiff {
+			maxDiff = d
+		}
+	}
+	return maxDiff
+}
+
 func toF64(v []float32) []float64 {
 	out := make([]float64, len(v))
 	for i, x := range v {
@@ -83,9 +101,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --- Correctness check: cosine similarity between the two paths ---
-	fmt.Println("=== Correctness (cosine similarity, ONNX vs pure-Go) ===")
+	// --- Correctness check: cosine similarity and max abs diff between the two paths ---
+	fmt.Println("=== Correctness (ONNX vs pure-Go) ===")
 	minCos := 1.0
+	var worstAbsDiff float64
 	for _, s := range testSentences {
 		onnxVec, err := onnxEmb.Embed(s)
 		if err != nil {
@@ -94,18 +113,24 @@ func main() {
 		}
 		enc := tok.Encode(s, 512)
 		pureVec := pureModel.Embed(enc.InputIDs)
+		onnxVecF64 := toF64(onnxVec)
 
-		cos := cosineSimilarity(toF64(onnxVec), pureVec)
+		cos := cosineSimilarity(onnxVecF64, pureVec)
 		if cos < minCos {
 			minCos = cos
+		}
+		absDiff := maxAbsDiff(onnxVecF64, pureVec)
+		if absDiff > worstAbsDiff {
+			worstAbsDiff = absDiff
 		}
 		trunc := s
 		if len(trunc) > 40 {
 			trunc = trunc[:40] + "..."
 		}
-		fmt.Printf("  cos=%.6f  len=%3d  %q\n", cos, len(enc.InputIDs), trunc)
+		fmt.Printf("  cos=%.6f  max_abs_diff=%.6f  len=%3d  %q\n", cos, absDiff, len(enc.InputIDs), trunc)
 	}
-	fmt.Printf("Minimum cosine similarity across test set: %.6f\n\n", minCos)
+	fmt.Printf("Minimum cosine similarity across test set: %.6f\n", minCos)
+	fmt.Printf("Maximum per-element absolute difference across test set: %.6f\n\n", worstAbsDiff)
 
 	// --- Timing ---
 	fmt.Printf("=== Timing (%d iterations over %d sentences) ===\n", *iterations, len(testSentences))
